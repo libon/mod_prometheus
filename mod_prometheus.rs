@@ -209,37 +209,34 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
 
     // Channel hangup complete
     id = freeswitchrs::event_bind("mod_prometheus", fsr::event_types::CHANNEL_HANGUP_COMPLETE, None, |e| {
-        if let Some(answertime) = e.header("Caller-Channel-Answered-Time") {
-            let parsed_time = answertime.parse::<i64>();
+        if let Some(billsecvar) = e.header("variable_billsec") {
+            let parsed_time = billsecvar.parse::<i64>();
             if parsed_time.is_ok() {
-
-                let myanswtime = parsed_time.unwrap() ;
-
-                if let Some(huptime) = e.header("Caller-Channel-Hangup-Time"){
-                    let parsed_time = huptime.parse::<i64>();
-                    if parsed_time.is_ok() {
-
-                        let myhuptime = parsed_time.unwrap() ;
-
-                        let myduration = myhuptime - myanswtime;
-
-                        if myduration > 0 && myduration < 10800 { // max 3 hours
-                            if let Some(direction) = e.header("Call-Direction") {
-                                if direction != "inbound" {
-                                    for _i in 1..=myduration  {
-                                        COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().increment();
-                                    }
-                                    let answered = COUNTERS[FSCounter::SessionsOutboundAnswered].lock().unwrap().value(); // same used for ASR computation
-                                    if answered > 0.0 {
-                                        let acd = COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().value() / answered;
-                                        GAUGES[FSGauge::SessionsACD].lock().unwrap().set(acd);
-                                    }
-                                }
+                let bill_seconds = parsed_time.unwrap() ;
+                if bill_seconds > 0 && bill_seconds < 10800 { // max 3 hours
+                    if let Some(direction) = e.header("Call-Direction") {
+                        if direction != "inbound" {
+                            for _i in 1..=bill_seconds  {
+                                COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().increment();
+                            }
+                            let answered = COUNTERS[FSCounter::SessionsOutboundAnswered].lock().unwrap().value(); // same used for ASR computation
+                            if answered > 0.0 {
+                                let acd = COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().value() / answered;
+                                GAUGES[FSGauge::SessionsACD].lock().unwrap().set(acd);
                             }
                         }
                     }
+                }else {
+                    let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
+                    fslog!(ERROR, "Received channel hangup event with value error in variable_billsec: {:?}\n", b);
                 }
+            }else {
+                let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
+                fslog!(ERROR, "Received channel hangup event with parsed_time error in variable_billsec information: {:?}\n", b);
             }
+        }else {
+            let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
+            fslog!(ERROR, "Received channel hangup event with no variable_billsec information: {:?}\n", b);
         }
     });
     EVENT_NODE_IDS.lock().unwrap().push(id);
