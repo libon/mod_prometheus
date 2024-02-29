@@ -21,6 +21,7 @@ extern crate freeswitchrs;
 extern crate prometheus;
 extern crate libc;
 
+use std::env;
 use std::sync::{Arc, Mutex};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -61,6 +62,8 @@ enum FSGauge {
 }
 
 static mut REGPTR: *mut Arc<Mutex<Registry>> = 0 as *mut Arc<Mutex<Registry>>;
+static LISTENING_DEFAULT_PORT: &'static str = "9282";
+static LISTENING_ENV_PORT: &'static str = "MOD_PROMETHEUS_PORT";
 
 lazy_static! {
     static ref USER_COUNTERS: Mutex<HashMap<String, Arc<Mutex<Counter>>>> = {
@@ -146,9 +149,19 @@ impl Index<FSGauge> for [Arc<Mutex<Gauge>>] {
 }
 
 fn prometheus_load(mod_int: &ModInterface) -> Status {
+
+    let mut myport: String = LISTENING_DEFAULT_PORT.to_string();
+    let env_variable = env::var(LISTENING_ENV_PORT.to_string());
+    if env_variable.is_err() {
+        fslog!(INFO,"MOD_PROMETHEUS_PORT env not found, using default {}", myport);
+    } else {
+        myport =  env_variable.unwrap();
+        fslog!(INFO,"MOD_PROMETHEUS_PORT env found: {}", myport);
+    }
+
     unsafe {
-        // FIXME: use config api to fetch the port from a config file
-        let reg = Box::new(Arc::new(Mutex::new(Registry::new("0.0.0.0".to_string(), 9282))));
+        let tcp_port: u16 = myport.parse().unwrap();
+        let reg = Box::new(Arc::new(Mutex::new(Registry::new("0.0.0.0".to_string(), tcp_port ))));
         REGPTR = Box::into_raw(reg);
     };
     let reg = unsafe { &*REGPTR };
@@ -216,9 +229,7 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
                 if bill_seconds > 0 && bill_seconds < 10800 { // max 3 hours
                     if let Some(direction) = e.header("Call-Direction") {
                         if direction != "inbound" {
-                            for _i in 1..=bill_seconds  {
-                                COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().increment();
-                            }
+                            COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
                             let answered = COUNTERS[FSCounter::SessionsOutboundAnswered].lock().unwrap().value(); // same used for ASR computation
                             if answered > 0.0 {
                                 let acd = COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().value() / answered;
@@ -470,7 +481,7 @@ fn prometheus_unload() -> Status {
     }
     fslog!(DEBUG, "Stopping metric registry");
     Registry::stop(&reg);
-    std::mem::drop(reg);
+    //std::mem::drop(reg); //calls to `std::mem::drop` with a reference instead of an owned value does nothing
     unsafe {
         REGPTR = 0 as *mut Arc<Mutex<Registry>>;
     }
