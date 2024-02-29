@@ -21,6 +21,7 @@ extern crate freeswitchrs;
 extern crate prometheus;
 extern crate libc;
 
+use std::env;
 use std::sync::{Arc, Mutex};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -41,24 +42,35 @@ enum FSCounter {
     Sessions,
     SessionsAnswered,
     SessionsFailed,
-    SessionsInbound,
+    SessionsInboundCreated,
     SessionsInboundAnswered,
     SessionsInboundFailed,
-    SessionsOutbound,
+    SessionsOutboundCreated,
     SessionsOutboundAnswered,
     SessionsOutboundFailed,
     Registrations,
     RegistrationAttempts,
-    RegistrationFailures
+    RegistrationFailures,
+    SessionsOutboundCallDurationTotal,
+    SessionsOutboundCallHangup,
+    SessionsOutboundCallHangupComplete,
+    SessionsInboundCallDurationTotal,
+    SessionsInboundCallHangup,
+    SessionsInboundCallHangupComplete,
 }
 
 enum FSGauge {
     SessionsActive,
-    SessionsASR,
-    RegistrationsActive
+    SessionsOutboundASR,
+    RegistrationsActive,
+    SessionsOutboundACD,
+    SessionsInboundACD,
+    SessionsInboundASR,
 }
 
 static mut REGPTR: *mut Arc<Mutex<Registry>> = 0 as *mut Arc<Mutex<Registry>>;
+static LISTENING_DEFAULT_PORT: &'static str = "9282";
+static LISTENING_ENV_PORT: &'static str = "MOD_PROMETHEUS_PORT";
 
 lazy_static! {
     static ref USER_COUNTERS: Mutex<HashMap<String, Arc<Mutex<Counter>>>> = {
@@ -67,10 +79,12 @@ lazy_static! {
     static ref USER_GAUGES: Mutex<HashMap<String, Arc<Mutex<Gauge>>>> = {
         Mutex::new(HashMap::new())
     };
-    static ref COUNTERS: [Arc<Mutex<Counter>>;13] = {[
+    static ref COUNTERS: [Arc<Mutex<Counter>>;19] = {[
+        // Heartbeats
         Arc::new(Mutex::new(Counter::new("freeswitch_heartbeats_total".to_string(),
                                          "FreeSWITCH heartbeat count".to_string()))),
 
+        // Sessions
         Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_total".to_string(),
                                                      "FreeSWITCH Session Count".to_string()))),
 
@@ -98,25 +112,62 @@ lazy_static! {
         Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_outbound_failed_total".to_string(),
                                                      "FreeSWITCH Failed Outbound Sessions Count".to_string()))),
 
-        // Registration Metrics
+        // Registrations
         Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_registrations_total".to_string(),
                                                      "FreeSWITCH Registration Count".to_string()))),
 
+        // RegistrationAttempts
         Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_registration_attempts_total".to_string(),
                                                      "FreeSWITCH Registration Attempts".to_string()))),
 
+        // RegistrationFailures
         Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_registration_failures_total".to_string(),
-                                                     "FreeSWITCH Registration Failures".to_string())))
+                                                     "FreeSWITCH Registration Failures".to_string()))),
+
+        // OUTBOUND
+        // SessionsOutboundCallDurationTotal: outbound calls duration metric
+        Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_outbound_duration_total".to_string(),
+                                                     "FreeSWITCH outbound Calls total duration".to_string()))),
+        // SessionsOutboundCallHangup: outbound calls with hangup metric
+        Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_outbound_hangup".to_string(),
+                                                     "FreeSWITCH outbound Calls hangup".to_string()))),
+        // SessionsOutboundCallHangupComplete: outbound calls with hangup complete metric
+        Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_outbound_hangup_complete".to_string(),
+                                                     "FreeSWITCH outbound Calls hangup complete".to_string()))),
+
+        // INBOUND
+        // SessionsInboundCallDurationTotal: inbound calls duration metric
+        Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_inbound_duration_total".to_string(),
+                                                     "FreeSWITCH inbound Calls total duration".to_string()))),
+
+        // SessionsInboundCallHangup: inbound calls with hangup metric
+        Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_inbound_hangup".to_string(),
+                                                     "FreeSWITCH inbound Calls hangup".to_string()))),
+
+        // SessionsInboundCallHangupComplete: inbound calls with hangup complete metric
+        Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_inbound_hangup_complete".to_string(),
+                                                     "FreeSWITCH inbound Calls hangup complete".to_string()))),
+
     ]};
-    static ref GAUGES: [Arc<Mutex<Gauge>>;3] = {[
+    static ref GAUGES: [Arc<Mutex<Gauge>>;6] = {[
+        // SessionsActive,
         Arc::new(Mutex::new(prometheus::Gauge::new("freeswitch_sessions_active".to_string(),
                                                    "FreeSWITCH Active Sessions".to_string()))),
-
-        Arc::new(Mutex::new(prometheus::Gauge::new("freeswitch_sessions_asr".to_string(),
-                                                   "FreeSWITCH Sessions Answer Seizure Ratio".to_string()))),
-
+        //         SessionsOutboundASR
+        Arc::new(Mutex::new(prometheus::Gauge::new("freeswitch_outbound_asr".to_string(),
+                                                   "FreeSWITCH outbound Answer Seizure Ratio".to_string()))),
+        //         RegistrationsActive,
         Arc::new(Mutex::new(prometheus::Gauge::new("freeswitch_registrations_active".to_string(),
-                                                   "FreeSWITCH Active Registrations".to_string())))
+                                                   "FreeSWITCH Active Registrations".to_string()))),
+        //         SessionsOutboundACD,
+        Arc::new(Mutex::new(prometheus::Gauge::new("freeswitch_outbound_acd".to_string(),
+                                                    "FreeSWITCH outbound Calls Average Duration".to_string()))),
+        //         SessionsInboundACD,
+        Arc::new(Mutex::new(prometheus::Gauge::new("freeswitch_inbound_acd".to_string(),
+                                                    "FreeSWITCH inbound Calls Average Duration".to_string()))),
+        //         SessionsInboundASR,
+        Arc::new(Mutex::new(prometheus::Gauge::new("freeswitch_inbound_asr".to_string(),
+                                                    "FreeSWITCH inbound Answer Seizure Ratio".to_string()))),
     ]};
     static ref EVENT_NODE_IDS: Mutex<Vec<u64>> = {
         Mutex::new(Vec::new())
@@ -138,9 +189,19 @@ impl Index<FSGauge> for [Arc<Mutex<Gauge>>] {
 }
 
 fn prometheus_load(mod_int: &ModInterface) -> Status {
+
+    let mut myport: String = LISTENING_DEFAULT_PORT.to_string();
+    let env_variable = env::var(LISTENING_ENV_PORT.to_string());
+    if env_variable.is_err() {
+        fslog!(INFO,"MOD_PROMETHEUS_PORT env not found, using default {}", myport);
+    } else {
+        myport =  env_variable.unwrap();
+        fslog!(INFO,"MOD_PROMETHEUS_PORT env found: {}", myport);
+    }
+
     unsafe {
-        // FIXME: use config api to fetch the port from a config file
-        let reg = Box::new(Arc::new(Mutex::new(Registry::new("0.0.0.0".to_string(), 9282))));
+        let tcp_port: u16 = myport.parse().unwrap();
+        let reg = Box::new(Arc::new(Mutex::new(Registry::new("0.0.0.0".to_string(), tcp_port ))));
         REGPTR = Box::into_raw(reg);
     };
     let reg = unsafe { &*REGPTR };
@@ -168,11 +229,15 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
         GAUGES[FSGauge::SessionsActive].lock().unwrap().increment();
         if let Some(direction) = e.header("Call-Direction") {
             if direction == "inbound" {
-                COUNTERS[FSCounter::SessionsInbound].lock().unwrap().increment();
-            } else {
-                let outbound = COUNTERS[FSCounter::SessionsOutbound].lock().unwrap().increment();
-                let asr = COUNTERS[FSCounter::SessionsOutboundAnswered].lock().unwrap().value() / outbound;
-                GAUGES[FSGauge::SessionsASR].lock().unwrap().set(asr);
+                COUNTERS[FSCounter::SessionsInboundCreated].lock().unwrap().increment();
+                let total = COUNTERS[FSCounter::SessionsInboundCreated].lock().unwrap().value();
+                let asr = COUNTERS[FSCounter::SessionsInboundAnswered].lock().unwrap().value() / total;
+                GAUGES[FSGauge::SessionsInboundASR].lock().unwrap().set(asr);
+            } else if direction == "outbound" {
+                COUNTERS[FSCounter::SessionsOutboundCreated].lock().unwrap().increment();
+                let total = COUNTERS[FSCounter::SessionsOutboundCreated].lock().unwrap().value();
+                let asr = COUNTERS[FSCounter::SessionsOutboundAnswered].lock().unwrap().value() / total;
+                GAUGES[FSGauge::SessionsOutboundASR].lock().unwrap().set(asr);
             }
         } else {
             let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
@@ -187,10 +252,14 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
         if let Some(direction) = e.header("Call-Direction") {
             if direction == "inbound" {
                 COUNTERS[FSCounter::SessionsInboundAnswered].lock().unwrap().increment();
-            } else {
-                let answered = COUNTERS[FSCounter::SessionsOutboundAnswered].lock().unwrap().increment();
-                let asr = answered / COUNTERS[FSCounter::SessionsOutbound].lock().unwrap().value();
-                GAUGES[FSGauge::SessionsASR].lock().unwrap().set(asr);
+                let answered = COUNTERS[FSCounter::SessionsInboundAnswered].lock().unwrap().value();
+                let asr = answered / COUNTERS[FSCounter::SessionsInboundCreated].lock().unwrap().value();
+                GAUGES[FSGauge::SessionsInboundASR].lock().unwrap().set(asr);
+            } else if direction == "outbound" {
+                COUNTERS[FSCounter::SessionsOutboundAnswered].lock().unwrap().increment();
+                let answered = COUNTERS[FSCounter::SessionsOutboundAnswered].lock().unwrap().value();
+                let asr = answered / COUNTERS[FSCounter::SessionsOutboundCreated].lock().unwrap().value();
+                GAUGES[FSGauge::SessionsOutboundASR].lock().unwrap().set(asr);
             }
         } else {
             let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
@@ -201,24 +270,69 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
 
     // Channel hangup
     id = freeswitchrs::event_bind("mod_prometheus", fsr::event_types::CHANNEL_HANGUP, None, |e| {
-        if let Some(answer) = e.header("Caller-Channel-Answered-Time") {
-            let parsed_time = answer.parse::<i64>();
-            if parsed_time.is_ok() && parsed_time.unwrap() == 0 as i64 {
-                if let Some(direction) = e.header("Call-Direction") {
-                    if direction == "inbound" {
-                        COUNTERS[FSCounter::SessionsInboundFailed].lock().unwrap().increment();
+        if let Some(direction) = e.header("Call-Direction") {
+            if direction == "inbound" {
+                COUNTERS[FSCounter::SessionsInboundCallHangup].lock().unwrap().increment();
+            }else{
+                COUNTERS[FSCounter::SessionsOutboundCallHangup].lock().unwrap().increment();
+            }
+        }
+        if let Some(answer_timestamp) = e.header("Caller-Channel-Answered-Time") {
+            let parsed_timestamp = answer_timestamp.parse::<i64>();
+            if parsed_timestamp.is_ok() {
+                let myts = parsed_timestamp.unwrap() ;
+
+                if myts == 0 { // no timestamp in hangup event means call failure
+                    if let Some(direction) = e.header("Call-Direction") {
+                        if direction == "inbound" {
+                            COUNTERS[FSCounter::SessionsInboundFailed].lock().unwrap().increment();
+                        } else if direction == "outbound" {
+                            COUNTERS[FSCounter::SessionsOutboundFailed].lock().unwrap().increment();
+                        }else{
+                            fslog!(WARNING, "Received channel hangup event with unhandled direction: {:?}\n", direction);
+                        }
+                        COUNTERS[FSCounter::SessionsFailed].lock().unwrap().increment();
                     } else {
-                        COUNTERS[FSCounter::SessionsOutboundFailed].lock().unwrap().increment();
+                        let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
+                        fslog!(WARNING, "Received channel hangup event with no call direction: {:?}\n", b);
                     }
-                    COUNTERS[FSCounter::SessionsFailed].lock().unwrap().increment();
-                } else {
-                    let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
-                    fslog!(WARNING, "Received channel hangup event with no call direction: {:?}\n", b);
                 }
             }
         } else {
             let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
             fslog!(WARNING, "Received channel hangup event with no call answer time information: {:?}\n", b);
+        }
+    });
+    EVENT_NODE_IDS.lock().unwrap().push(id);
+
+    // Channel hangup complete
+    id = freeswitchrs::event_bind("mod_prometheus", fsr::event_types::CHANNEL_HANGUP_COMPLETE, None, |e| {
+        if let Some(billsecvar) = e.header("variable_billsec") {
+            let parsed_time = billsecvar.parse::<i64>();
+            if parsed_time.is_ok() {
+                let bill_seconds = parsed_time.unwrap() ;
+                if let Some(direction) = e.header("Call-Direction") {
+                    if direction == "outbound" {
+                        COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
+                        COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().increment();
+                        let acd = COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().value() /
+                                                        COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().value();
+                        GAUGES[FSGauge::SessionsOutboundACD].lock().unwrap().set(acd);
+                    }else if direction == "inbound"{
+                        COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
+                        COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().increment();
+                        let acd = COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().value() /
+                                        COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().value();
+                        GAUGES[FSGauge::SessionsInboundACD].lock().unwrap().set(acd);
+                    }
+                }
+            }else {
+                let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
+                fslog!(ERROR, "Received channel hangup event with parsed_time error in variable_billsec information: {:?}\n", b);
+            }
+        }else {
+            let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
+            fslog!(ERROR, "Received channel hangup event with no variable_billsec information: {:?}\n", b);
         }
     });
     EVENT_NODE_IDS.lock().unwrap().push(id);
@@ -424,7 +538,7 @@ fn prometheus_unload() -> Status {
     }
     fslog!(DEBUG, "Stopping metric registry");
     Registry::stop(&reg);
-    std::mem::drop(reg);
+    //std::mem::drop(reg); //calls to `std::mem::drop` with a reference instead of an owned value does nothing
     unsafe {
         REGPTR = 0 as *mut Arc<Mutex<Registry>>;
     }
