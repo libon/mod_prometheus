@@ -232,7 +232,7 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
                 COUNTERS[FSCounter::SessionsInboundCreated].lock().unwrap().increment();
                 let total = COUNTERS[FSCounter::SessionsInboundCreated].lock().unwrap().value();
                 let asr = COUNTERS[FSCounter::SessionsInboundAnswered].lock().unwrap().value() / total;
-                GAUGES[FSGauge::SessionsOutboundASR].lock().unwrap().set(asr);
+                GAUGES[FSGauge::SessionsInboundASR].lock().unwrap().set(asr);
             } else if direction == "outbound" {
                 COUNTERS[FSCounter::SessionsOutboundCreated].lock().unwrap().increment();
                 let total = COUNTERS[FSCounter::SessionsOutboundCreated].lock().unwrap().value();
