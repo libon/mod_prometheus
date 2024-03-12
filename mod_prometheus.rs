@@ -60,7 +60,8 @@ enum FSCounter {
 }
 
 enum FSGauge {
-    SessionsActive,
+    SessionsActiveInbound,
+    SessionsActiveOutbound,
     SessionsOutboundASR,
     RegistrationsActive,
     SessionsOutboundACD,
@@ -149,10 +150,13 @@ lazy_static! {
                                                      "FreeSWITCH inbound Calls hangup complete".to_string()))),
 
     ]};
-    static ref GAUGES: [Arc<Mutex<Gauge>>;6] = {[
-        // SessionsActive,
-        Arc::new(Mutex::new(prometheus::Gauge::new("freeswitch_sessions_active".to_string(),
-                                                   "FreeSWITCH Active Sessions".to_string()))),
+    static ref GAUGES: [Arc<Mutex<Gauge>>;7] = {[
+        // SessionsActiveInbound,
+        Arc::new(Mutex::new(prometheus::Gauge::new("freeswitch_sessions_active_inbound".to_string(),
+                                                   "FreeSWITCH Active Sessions inbound".to_string()))),
+        // SessionsActiveOutbound,
+        Arc::new(Mutex::new(prometheus::Gauge::new("freeswitch_sessions_active_outbound".to_string(),
+                                                   "FreeSWITCH Active Sessions outbound".to_string()))),
         //         SessionsOutboundASR
         Arc::new(Mutex::new(prometheus::Gauge::new("freeswitch_outbound_asr".to_string(),
                                                    "FreeSWITCH outbound Answer Seizure Ratio".to_string()))),
@@ -226,14 +230,15 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
     // New channel created
     id = freeswitchrs::event_bind("mod_prometheus", fsr::event_types::CHANNEL_CREATE, None, |e| {
         COUNTERS[FSCounter::Sessions].lock().unwrap().increment();
-        GAUGES[FSGauge::SessionsActive].lock().unwrap().increment();
         if let Some(direction) = e.header("Call-Direction") {
             if direction == "inbound" {
+                GAUGES[FSGauge::SessionsActiveInbound].lock().unwrap().increment();
                 COUNTERS[FSCounter::SessionsInboundCreated].lock().unwrap().increment();
                 let total = COUNTERS[FSCounter::SessionsInboundCreated].lock().unwrap().value();
                 let asr = COUNTERS[FSCounter::SessionsInboundAnswered].lock().unwrap().value() / total;
                 GAUGES[FSGauge::SessionsInboundASR].lock().unwrap().set(asr);
             } else if direction == "outbound" {
+                GAUGES[FSGauge::SessionsActiveOutbound].lock().unwrap().increment();
                 COUNTERS[FSCounter::SessionsOutboundCreated].lock().unwrap().increment();
                 let total = COUNTERS[FSCounter::SessionsOutboundCreated].lock().unwrap().value();
                 let asr = COUNTERS[FSCounter::SessionsOutboundAnswered].lock().unwrap().value() / total;
@@ -338,8 +343,15 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
     EVENT_NODE_IDS.lock().unwrap().push(id);
 
     // Channel destroyed
-    id = freeswitchrs::event_bind("mod_prometheus", fsr::event_types::CHANNEL_DESTROY, None, |_| {
-        GAUGES[FSGauge::SessionsActive].lock().unwrap().decrement();
+    id = freeswitchrs::event_bind("mod_prometheus", fsr::event_types::CHANNEL_DESTROY, None, |e| {
+        COUNTERS[FSCounter::Sessions].lock().unwrap().increment();
+        if let Some(direction) = e.header("Call-Direction") {
+            if direction == "inbound" {
+                GAUGES[FSGauge::SessionsActiveInbound].lock().unwrap().decrement();
+            } else if direction == "outbound" {
+                GAUGES[FSGauge::SessionsActiveOutbound].lock().unwrap().decrement();
+            }
+        }
     });
     EVENT_NODE_IDS.lock().unwrap().push(id);
 
