@@ -39,7 +39,8 @@ use prometheus::{Registry, Counter, Gauge};
 // to do this, but as of today it seems one can't iterate over enums in rust
 enum FSCounter {
     Heartbeats = 0,
-    Sessions,
+    SessionsCreated,
+    SessionsDestroyed,
     SessionsAnswered,
     SessionsFailed,
     SessionsInboundCreated,
@@ -80,14 +81,17 @@ lazy_static! {
     static ref USER_GAUGES: Mutex<HashMap<String, Arc<Mutex<Gauge>>>> = {
         Mutex::new(HashMap::new())
     };
-    static ref COUNTERS: [Arc<Mutex<Counter>>;19] = {[
+    static ref COUNTERS: [Arc<Mutex<Counter>>;20] = {[
         // Heartbeats
         Arc::new(Mutex::new(Counter::new("freeswitch_heartbeats_total".to_string(),
                                          "FreeSWITCH heartbeat count".to_string()))),
 
         // Sessions
-        Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_total".to_string(),
-                                                     "FreeSWITCH Session Count".to_string()))),
+        Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_created_total".to_string(),
+                                                     "FreeSWITCH Session Created Count".to_string()))),
+
+        Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_destroyed_total".to_string(),
+                                                     "FreeSWITCH Session Destroyed Count".to_string()))),
 
         Arc::new(Mutex::new(prometheus::Counter::new("freeswitch_sessions_answered_total".to_string(),
                                                      "FreeSWITCH Answered Sessions Count".to_string()))),
@@ -229,7 +233,7 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
 
     // New channel created
     id = freeswitchrs::event_bind("mod_prometheus", fsr::event_types::CHANNEL_CREATE, None, |e| {
-        COUNTERS[FSCounter::Sessions].lock().unwrap().increment();
+        COUNTERS[FSCounter::SessionsCreated].lock().unwrap().increment();
         if let Some(direction) = e.header("Call-Direction") {
             if direction == "inbound" {
                 GAUGES[FSGauge::SessionsActiveInbound].lock().unwrap().increment();
@@ -344,7 +348,7 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
 
     // Channel destroyed
     id = freeswitchrs::event_bind("mod_prometheus", fsr::event_types::CHANNEL_DESTROY, None, |e| {
-        COUNTERS[FSCounter::Sessions].lock().unwrap().increment();
+        COUNTERS[FSCounter::SessionsDestroyed].lock().unwrap().increment();
         if let Some(direction) = e.header("Call-Direction") {
             if direction == "inbound" {
                 GAUGES[FSGauge::SessionsActiveInbound].lock().unwrap().decrement();
