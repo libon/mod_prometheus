@@ -316,32 +316,36 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
 
     // Channel hangup complete
     id = freeswitchrs::event_bind("mod_prometheus", fsr::event_types::CHANNEL_HANGUP_COMPLETE, None, |e| {
-        if let Some(billsecvar) = e.header("variable_billsec") {
-            let parsed_time = billsecvar.parse::<i64>();
-            if parsed_time.is_ok() {
-                let bill_seconds = parsed_time.unwrap() ;
-                if let Some(direction) = e.header("Call-Direction") {
-                    if direction == "outbound" {
-                        COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
-                        COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().increment();
-                        let acd = COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().value() /
-                                                        COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().value();
-                        GAUGES[FSGauge::SessionsOutboundACD].lock().unwrap().set(acd);
-                    }else if direction == "inbound"{
-                        COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
-                        COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().increment();
-                        let acd = COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().value() /
-                                        COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().value();
-                        GAUGES[FSGauge::SessionsInboundACD].lock().unwrap().set(acd);
+        if let Some(last_bridge_hup_cause) = e.header("variable_last_bridge_hangup_cause") {
+            if last_bridge_hup_cause == "NORMAL_CLEARING" {
+                if let Some(billsecvar) = e.header("variable_billsec") {
+                    let parsed_time = billsecvar.parse::<i64>();
+                    if parsed_time.is_ok() {
+                        let bill_seconds = parsed_time.unwrap() ;
+                        if let Some(direction) = e.header("Call-Direction") {
+                            if direction == "outbound" {
+                                COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
+                                COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().increment();
+                                let acd = COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().value() /
+                                                                COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().value();
+                                GAUGES[FSGauge::SessionsOutboundACD].lock().unwrap().set(acd);
+                            }else if direction == "inbound"{
+                                COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
+                                COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().increment();
+                                let acd = COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().value() /
+                                                COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().value();
+                                GAUGES[FSGauge::SessionsInboundACD].lock().unwrap().set(acd);
+                            }
+                        }
+                    }else {
+                        fslog!(ERROR, "Received CHANNEL_HANGUP_COMPLETE with parsed_time error in variable_billsec information\n");
                     }
+                }else {
+                    fslog!(ERROR, "Received CHANNEL_HANGUP_COMPLETE with no variable_billsec information\n");
                 }
-            }else {
-                let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
-                fslog!(ERROR, "Received channel hangup event with parsed_time error in variable_billsec information: {:?}\n", b);
             }
-        }else {
-            let b = e.body().unwrap_or(Cow::Borrowed("<No Body>"));
-            fslog!(ERROR, "Received channel hangup event with no variable_billsec information: {:?}\n", b);
+        }else{
+            fslog!(ERROR, "Received CHANNEL_HANGUP_COMPLETE with no variable_last_bridge_hangup_cause information\n");
         }
     });
     EVENT_NODE_IDS.lock().unwrap().push(id);
