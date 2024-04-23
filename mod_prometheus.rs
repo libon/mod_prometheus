@@ -282,7 +282,7 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
         if let Some(direction) = e.header("Call-Direction") {
             if direction == "inbound" {
                 COUNTERS[FSCounter::SessionsInboundCallHangup].lock().unwrap().increment();
-            }else{
+            } else {
                 COUNTERS[FSCounter::SessionsOutboundCallHangup].lock().unwrap().increment();
             }
         }
@@ -297,7 +297,7 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
                             COUNTERS[FSCounter::SessionsInboundFailed].lock().unwrap().increment();
                         } else if direction == "outbound" {
                             COUNTERS[FSCounter::SessionsOutboundFailed].lock().unwrap().increment();
-                        }else{
+                        } else {
                             fslog!(WARNING, "Received channel hangup event with unhandled direction: {:?}\n", direction);
                         }
                         COUNTERS[FSCounter::SessionsFailed].lock().unwrap().increment();
@@ -329,7 +329,7 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
                                 let acd = COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().value() /
                                                                 COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().value();
                                 GAUGES[FSGauge::SessionsOutboundACD].lock().unwrap().set(acd);
-                            }else if direction == "inbound"{
+                            } else if direction == "inbound" {
                                 COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
                                 COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().increment();
                                 let acd = COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().value() /
@@ -337,14 +337,14 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
                                 GAUGES[FSGauge::SessionsInboundACD].lock().unwrap().set(acd);
                             }
                         }
-                    }else {
+                    } else {
                         fslog!(ERROR, "Received CHANNEL_HANGUP_COMPLETE with parsed_time error in variable_billsec information\n");
                     }
-                }else {
+                } else {
                     fslog!(ERROR, "Received CHANNEL_HANGUP_COMPLETE with no variable_billsec information\n");
                 }
             }
-        }else{
+        } else {
             fslog!(ERROR, "Received CHANNEL_HANGUP_COMPLETE with no variable_last_bridge_hangup_cause information\n");
         }
     });
