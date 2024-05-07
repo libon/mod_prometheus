@@ -316,36 +316,68 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
 
     // Channel hangup complete
     id = freeswitchrs::event_bind("mod_prometheus", fsr::event_types::CHANNEL_HANGUP_COMPLETE, None, |e| {
-        if let Some(last_bridge_hup_cause) = e.header("variable_last_bridge_hangup_cause") {
-            if last_bridge_hup_cause == "NORMAL_CLEARING" {
+
+        let mut callid = String::new();
+        let mut uniqueId = String::new();
+        let mut direction = String::new();
+
+        if let Some(sip_callid) = e.header("variable_sip_call_id"){
+            callid = sip_callid.to_string();
+        }
+        if let Some(unique_id )= e.header("Unique-ID") {
+            uniqueId = unique_id.to_string();
+        }
+        if let Some(call_direction) = e.header("Call-Direction") {
+            direction = call_direction.to_string();
+        }
+        fslog!(INFO, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE\n", callid, uniqueId, direction);
+
+        if let Some(hupCause) = e.header("Hangup-Cause") {
+
+            fslog!(INFO, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE hupCause:{:#?}\n", callid, uniqueId, direction, hupCause.clone());
+
+            if hupCause == "NORMAL_CLEARING" {  // NORMAL_CLEARING or ORIGINATOR_CANCEL or NO_USER_RESPONSE
                 if let Some(billsecvar) = e.header("variable_billsec") {
-                    let parsed_time = billsecvar.parse::<i64>();
+                    let parsed_time = billsecvar.parse::<u64>();
                     if parsed_time.is_ok() {
                         let bill_seconds = parsed_time.unwrap() ;
-                        if let Some(direction) = e.header("Call-Direction") {
-                            if direction == "outbound" {
-                                COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
-                                COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().increment();
-                                let acd = COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().value() /
-                                                                COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().value();
-                                GAUGES[FSGauge::SessionsOutboundACD].lock().unwrap().set(acd);
-                            } else if direction == "inbound" {
-                                COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
-                                COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().increment();
-                                let acd = COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().value() /
-                                                COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().value();
-                                GAUGES[FSGauge::SessionsInboundACD].lock().unwrap().set(acd);
-                            }
+                        if direction == "outbound" {
+                            COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
+                            COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().increment();
+
+                            let totalSeconds: u64 = COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().value() as u64;
+                            let totalHup: u64 = COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().value() as u64;
+                            let acd_out = totalSeconds / totalHup;
+
+                            GAUGES[FSGauge::SessionsOutboundACD].lock().unwrap().set(acd_out as f64);
+
+                            fslog!(INFO, "callid:{:#?} uniqueId:{:#?} {:#?} bill:{:#?} sec. totalHup:{:#?} total:{:#?} sec. acd:{:#?} \n",
+                                callid, uniqueId, direction, bill_seconds, totalHup, totalSeconds, acd_out);
+
+                        } else if direction == "inbound" {
+
+                            COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
+                            COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().increment();
+
+                            let totalSeconds: u64 = COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().value() as u64;
+                            let totalHup: u64 = COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().value() as u64;
+                            let acd_in = totalSeconds / totalHup;
+
+                            GAUGES[FSGauge::SessionsInboundACD].lock().unwrap().set(acd_in as f64);
+
+                            fslog!(INFO, "callid:{:#?} uniqueId:{:#?} {:#?} bill:{:#?} sec. totalHup:{:#?} total:{:#?} sec. acd:{:#?} \n",
+                                callid, uniqueId, direction, bill_seconds, totalHup, totalSeconds, acd_in);
                         }
+
                     } else {
-                        fslog!(ERROR, "Received CHANNEL_HANGUP_COMPLETE with parsed_time error in variable_billsec information\n");
+                        fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE error parsing variable_billsec header\n",callid, uniqueId, direction);
                     }
-                } else {
-                    fslog!(ERROR, "Received CHANNEL_HANGUP_COMPLETE with no variable_billsec information\n");
-                }
+                }else {
+                    fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without variable_billsec header\n",callid, uniqueId, direction);
+                } 
+            }else {
+                fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without Hangup-Cause header\n",callid, uniqueId, direction);
             }
-        } else {
-            fslog!(ERROR, "Received CHANNEL_HANGUP_COMPLETE with no variable_last_bridge_hangup_cause information\n");
         }
     });
     EVENT_NODE_IDS.lock().unwrap().push(id);
