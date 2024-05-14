@@ -30,7 +30,7 @@ use std::ops::Index;
 use freeswitchrs::raw as fsr;
 use freeswitchrs::mods::*; // This will get replaced with a mods prelude
 use freeswitchrs::Status;
-use freeswitchrs::raw::log_level::{DEBUG, INFO, WARNING, ERROR};
+use freeswitchrs::raw::log_level::{DEBUG, INFO, NOTICE, WARNING, ERROR};
 
 use prometheus::{Registry, Counter, Gauge};
 
@@ -201,10 +201,10 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
     let mut myport: String = LISTENING_DEFAULT_PORT.to_string();
     let env_variable = env::var(LISTENING_ENV_PORT.to_string());
     if env_variable.is_err() {
-        fslog!(INFO,"MOD_PROMETHEUS_PORT env not found, using default {}", myport);
+        fslog!(NOTICE,"MOD_PROMETHEUS_PORT env not found, using default {}", myport);
     } else {
         myport =  env_variable.unwrap();
-        fslog!(INFO,"MOD_PROMETHEUS_PORT env found: {}", myport);
+        fslog!(NOTICE,"MOD_PROMETHEUS_PORT env found: {}", myport);
     }
 
     unsafe {
@@ -334,7 +334,7 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
 
         if let Some(hupCause) = e.header("Hangup-Cause") {
 
-            fslog!(INFO, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE hupCause:{:#?}\n", callid, uniqueId, direction, hupCause.clone());
+            fslog!(NOTICE, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE hupCause:{:#?}\n", callid, uniqueId, direction, hupCause.clone());
 
             if hupCause == "NORMAL_CLEARING" {  // NORMAL_CLEARING or ORIGINATOR_CANCEL or NO_USER_RESPONSE
                 if let Some(billsecvar) = e.header("variable_billsec") {
@@ -351,7 +351,7 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
 
                             GAUGES[FSGauge::SessionsOutboundACD].lock().unwrap().set(acd_out as f64);
 
-                            fslog!(INFO, "callid:{:#?} uniqueId:{:#?} {:#?} bill:{:#?} sec. totalHup:{:#?} total:{:#?} sec. acd:{:#?} \n",
+                            fslog!(NOTICE, "callid:{:#?} uniqueId:{:#?} {:#?} bill:{:#?} sec. totalHup:{:#?} total:{:#?} sec. acd:{:#?} \n",
                                 callid, uniqueId, direction, bill_seconds, totalHup, totalSeconds, acd_out);
 
                         } else if direction == "inbound" {
@@ -365,7 +365,7 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
 
                             GAUGES[FSGauge::SessionsInboundACD].lock().unwrap().set(acd_in as f64);
 
-                            fslog!(INFO, "callid:{:#?} uniqueId:{:#?} {:#?} bill:{:#?} sec. totalHup:{:#?} total:{:#?} sec. acd:{:#?} \n",
+                            fslog!(NOTICE, "callid:{:#?} uniqueId:{:#?} {:#?} bill:{:#?} sec. totalHup:{:#?} total:{:#?} sec. acd:{:#?} \n",
                                 callid, uniqueId, direction, bill_seconds, totalHup, totalSeconds, acd_in);
                         }
 
@@ -374,10 +374,10 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
                     }
                 }else {
                     fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without variable_billsec header\n",callid, uniqueId, direction);
-                } 
-            }else {
-                fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without Hangup-Cause header\n",callid, uniqueId, direction);
+                }
             }
+        } else {
+            fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without Hangup-Cause header\n",callid, uniqueId, direction);
         }
     });
     EVENT_NODE_IDS.lock().unwrap().push(id);
@@ -440,7 +440,7 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
                                 gauge_increment_app,
                                 fsr::application_flag_enum::SUPPORT_NOMEDIA);
 
-    fslog!(INFO, "Loaded Prometheus Metrics Module");
+    fslog!(NOTICE, "Loaded Prometheus Metrics Module");
     Ok(())
 }
 
