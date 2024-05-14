@@ -374,10 +374,10 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
                     }
                 }else {
                     fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without variable_billsec header\n",callid, uniqueId, direction);
-                } 
-            }else {
-                fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without Hangup-Cause header\n",callid, uniqueId, direction);
+                }
             }
+        } else {
+            fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without Hangup-Cause header\n",callid, uniqueId, direction);
         }
     });
     EVENT_NODE_IDS.lock().unwrap().push(id);
