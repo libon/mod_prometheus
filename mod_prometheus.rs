@@ -318,25 +318,25 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
     id = freeswitchrs::event_bind("mod_prometheus", fsr::event_types::CHANNEL_HANGUP_COMPLETE, None, |e| {
 
         let mut callid = String::new();
-        let mut uniqueId = String::new();
+        let mut uniqueid = String::new();
         let mut direction = String::new();
 
         if let Some(sip_callid) = e.header("variable_sip_call_id"){
             callid = sip_callid.to_string();
         }
         if let Some(unique_id )= e.header("Unique-ID") {
-            uniqueId = unique_id.to_string();
+            uniqueid = unique_id.to_string();
         }
         if let Some(call_direction) = e.header("Call-Direction") {
             direction = call_direction.to_string();
         }
-        fslog!(INFO, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE\n", callid, uniqueId, direction);
+        fslog!(INFO, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE\n", callid, uniqueid, direction);
 
-        if let Some(hupCause) = e.header("Hangup-Cause") {
+        if let Some(hup_cause) = e.header("Hangup-Cause") {
 
-            fslog!(NOTICE, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE hupCause:{:#?}\n", callid, uniqueId, direction, hupCause.clone());
+            fslog!(NOTICE, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE hup_cause:{:#?}\n", callid, uniqueid, direction, hup_cause.clone());
 
-            if hupCause == "NORMAL_CLEARING" {  // NORMAL_CLEARING or ORIGINATOR_CANCEL or NO_USER_RESPONSE
+            if hup_cause == "NORMAL_CLEARING" {  // NORMAL_CLEARING or ORIGINATOR_CANCEL or NO_USER_RESPONSE
                 if let Some(billsecvar) = e.header("variable_billsec") {
                     let parsed_time = billsecvar.parse::<u64>();
                     if parsed_time.is_ok() {
@@ -345,39 +345,39 @@ fn prometheus_load(mod_int: &ModInterface) -> Status {
                             COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
                             COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().increment();
 
-                            let totalSeconds: u64 = COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().value() as u64;
-                            let totalHup: u64 = COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().value() as u64;
-                            let acd_out = totalSeconds / totalHup;
+                            let total_seconds: u64 = COUNTERS[FSCounter::SessionsOutboundCallDurationTotal].lock().unwrap().value() as u64;
+                            let total_hup: u64 = COUNTERS[FSCounter::SessionsOutboundCallHangupComplete].lock().unwrap().value() as u64;
+                            let acd_out = total_seconds / total_hup;
 
                             GAUGES[FSGauge::SessionsOutboundACD].lock().unwrap().set(acd_out as f64);
 
-                            fslog!(NOTICE, "callid:{:#?} uniqueId:{:#?} {:#?} bill:{:#?} sec. totalHup:{:#?} total:{:#?} sec. acd:{:#?} \n",
-                                callid, uniqueId, direction, bill_seconds, totalHup, totalSeconds, acd_out);
+                            fslog!(NOTICE, "callid:{:#?} uniqueId:{:#?} {:#?} bill:{:#?} sec. total_hup:{:#?} total:{:#?} sec. acd:{:#?} \n",
+                                callid, uniqueid, direction, bill_seconds, total_hup, total_seconds, acd_out);
 
                         } else if direction == "inbound" {
 
                             COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().increment_by(bill_seconds as f64);
                             COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().increment();
 
-                            let totalSeconds: u64 = COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().value() as u64;
-                            let totalHup: u64 = COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().value() as u64;
-                            let acd_in = totalSeconds / totalHup;
+                            let total_seconds: u64 = COUNTERS[FSCounter::SessionsInboundCallDurationTotal].lock().unwrap().value() as u64;
+                            let total_hup: u64 = COUNTERS[FSCounter::SessionsInboundCallHangupComplete].lock().unwrap().value() as u64;
+                            let acd_in = total_seconds / total_hup;
 
                             GAUGES[FSGauge::SessionsInboundACD].lock().unwrap().set(acd_in as f64);
 
-                            fslog!(NOTICE, "callid:{:#?} uniqueId:{:#?} {:#?} bill:{:#?} sec. totalHup:{:#?} total:{:#?} sec. acd:{:#?} \n",
-                                callid, uniqueId, direction, bill_seconds, totalHup, totalSeconds, acd_in);
+                            fslog!(NOTICE, "callid:{:#?} uniqueId:{:#?} {:#?} bill:{:#?} sec. total_hup:{:#?} total:{:#?} sec. acd:{:#?} \n",
+                                callid, uniqueid, direction, bill_seconds, total_hup, total_seconds, acd_in);
                         }
 
                     } else {
-                        fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE error parsing variable_billsec header\n",callid, uniqueId, direction);
+                        fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE error parsing variable_billsec header\n",callid, uniqueid, direction);
                     }
                 }else {
-                    fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without variable_billsec header\n",callid, uniqueId, direction);
+                    fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without variable_billsec header\n",callid, uniqueid, direction);
                 }
             }
         } else {
-            fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without Hangup-Cause header\n",callid, uniqueId, direction);
+            fslog!(ERROR, "callid:{:#?} uniqueId:{:#?} {:#?} CHANNEL_HANGUP_COMPLETE without Hangup-Cause header\n",callid, uniqueid, direction);
         }
     });
     EVENT_NODE_IDS.lock().unwrap().push(id);
@@ -491,13 +491,13 @@ unsafe extern "C" fn counter_increment_api(cmd: *const std::os::raw::c_char,
         if !counters.contains_key(&name) {
             let counter = Arc::new(Mutex::new(Counter::new(name.clone(), name.clone())));
             counters.insert(name.clone(), counter.clone());
-            let reg = &*REGPTR;
+            let reg = unsafe { &*REGPTR };
             reg.lock().unwrap().register_counter(counter);
         }
         v = counters[&name].lock().unwrap().increment_by(val);
     }
     let out = format!("+OK {}", v);
-    (*stream).write_function.unwrap()(stream, fsr::str_to_ptr(&out));
+    unsafe { (*stream).write_function.unwrap()(stream, fsr::str_to_ptr(&out)) };
     fsr::status::SUCCESS
 }
 
@@ -527,7 +527,7 @@ unsafe extern "C" fn gauge_set_api(cmd: *const std::os::raw::c_char,
     let gauge = gauge_get(&name);
     let v = gauge.lock().unwrap().set(val);
     let out = format!("+OK {}", v);
-    (*stream).write_function.unwrap()(stream, fsr::str_to_ptr(&out));
+    unsafe { (*stream).write_function.unwrap()(stream, fsr::str_to_ptr(&out)) };
     fsr::status::SUCCESS
 }
 
@@ -544,7 +544,7 @@ unsafe extern "C" fn gauge_increment_api(cmd: *const std::os::raw::c_char,
     let gauge = gauge_get(&name);
     let v = gauge.lock().unwrap().increment_by(val);
     let out = format!("+OK {}", v);
-    (*stream).write_function.unwrap()(stream, fsr::str_to_ptr(&out));
+    unsafe { (*stream).write_function.unwrap()(stream, fsr::str_to_ptr(&out)) };
     fsr::status::SUCCESS
 }
 
@@ -561,7 +561,7 @@ unsafe extern "C" fn gauge_decrement_api(cmd: *const std::os::raw::c_char,
     let gauge = gauge_get(&name);
     let v = gauge.lock().unwrap().decrement_by(val);
     let out = format!("+OK {}", v);
-    (*stream).write_function.unwrap()(stream, fsr::str_to_ptr(&out));
+    unsafe { (*stream).write_function.unwrap()(stream, fsr::str_to_ptr(&out)) };
     fsr::status::SUCCESS
 }
 

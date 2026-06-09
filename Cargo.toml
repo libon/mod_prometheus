@@ -1,19 +1,14 @@
 [package]
 name = "mod_prometheus"
-version = "0.1.0"
+version = "0.9.0"
 authors = ["Moises Silva <moises.silva@gmail.com>"]
+edition = "2024"
 
 [dependencies]
 lazy_static = "1.4.0"
 libc = "*"
 prometheus = { git = "https://github.com/moises-silva/prometheus-rs" }
-freeswitchrs = { git = "https://github.com/moises-silva/freeswitchrs" }
-
-#[dependencies.freeswitchrs]
-#path = ".."
-
-#[dependencies.prometheus]
-#path = "/home/moy/src/rust/prometheus"
+freeswitchrs = { git = "https://github.com/libon/freeswitchrs" }
 
 [lib]
 crate-type = ["dylib"]
